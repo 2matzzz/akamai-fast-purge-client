@@ -1,0 +1,5 @@
+[default]
+host = akab-xxxxxxxxxxxxxxxx-xxxxxxxxxxxxxxxx.purge.akamaiapis.net
+client_token = akab-xxxxxxxxxxxxxxxx-xxxxxxxxxxxxxxxx
+client_secret = XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+access_token = akab-xxxxxxxxxxxxxxxx-xxxxxxxxxxxxxxxx

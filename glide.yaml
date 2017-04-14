@@ -1,0 +1,5 @@
+package: nh4-stash.4cast-ssl.jp:7999/dev/akamai-fast-purge-client
+import:
+- package: github.com/akamai-open/AkamaiOPEN-edgegrid-golang
+- package: github.com/mitchellh/go-homedir
+- package: github.com/google/uuid

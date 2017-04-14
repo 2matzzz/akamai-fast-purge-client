@@ -1,0 +1,22 @@
+hash: 8bd2ef7ffadeef937d528035779f186098102d03db530d5c6f9d56c9b0fef558
+updated: 2017-03-13T13:03:24.252161196+09:00
+imports:
+- name: github.com/akamai-open/AkamaiOPEN-edgegrid-golang
+  version: 8798d3fed93c63556fe8547a37c4279e24a851a3
+- name: github.com/go-ini/ini
+  version: 12f418cc7edc5a618a51407b7ac1f1f512139df3
+- name: github.com/google/uuid
+  version: 6a5e28554805e78ea6141142aba763936c4761c0
+- name: github.com/mitchellh/go-homedir
+  version: b8bc1bf767474819792c23f32d8286a45736f1c6
+- name: github.com/Sirupsen/logrus
+  version: 3ec0642a7fb6488f65b06f9040adc67e3990296a
+- name: github.com/tuvistavie/securerandom
+  version: 15512123a948d62f6361bd84818e11f2ad84059a
+- name: golang.org/x/sys
+  version: 9d4e42a20653790449273b3c85e67d6d8bae6e2e
+  subpackages:
+  - unix
+- name: gopkg.in/mattes/go-expand-tilde.v1
+  version: cb884138e64c9a8bf5c7d6106d74b0fca082df0c
+testImports: []
