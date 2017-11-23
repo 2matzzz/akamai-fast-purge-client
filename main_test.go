@@ -29,8 +29,8 @@ func random() string {
 
 func TestValidation(t *testing.T) {
 	texts := map[string]string{
-		validTextInvalidationRequestFileHTTP:  "L/",
-		validTextInvalidationRequestFileHTTPS: "S/",
+		validTextInvalidationRequestFileHTTP:  "http",
+		validTextInvalidationRequestFileHTTPS: "https",
 		validJSONInvalidationRequestFile:      "{",
 	}
 	for k, v := range texts {
