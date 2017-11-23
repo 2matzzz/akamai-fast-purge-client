@@ -120,9 +120,8 @@ func Validation(config *Config, invalidationRequestFile string) error {
 	reader := bufio.NewReaderSize(fp, 4096)
 	line, _, err := reader.ReadLine()
 	if config.fileType == "text" {
-		// ARL start S/ or L/
-		// reference: https://community.akamai.com/community/web-performance/blog/2016/01/18/cache-keys-why-we-should-know-them
-		if string(line[0:2]) != "S/" && string(line[0:2]) != "L/" {
+		// URL
+		if string(line[0:4]) != "http" {
 			return errors.New("cache invalidation request list is invalid formatted")
 		}
 	}
@@ -132,7 +131,7 @@ func Validation(config *Config, invalidationRequestFile string) error {
 	return nil
 }
 
-// Invalidation request to Akamai CCU v3 (a.k.a Fast Purge) with credential and ARL list
+// Invalidation request to Akamai CCU v3 (a.k.a Fast Purge) with credential and URL list
 func Invalidation(config *Config, invalidationRequestFile string) error {
 	var buffer bytes.Buffer
 	var wg sync.WaitGroup
