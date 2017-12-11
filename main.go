@@ -70,13 +70,7 @@ func chkExist(path string) error {
 }
 
 // Validation check args provided to client. If args has invalid parameter(s), Validation returns error
-func Validation(config *Config, invalidationRequestFile string) error {
-
-	// Validate invalidation url list file
-	err := chkExist(invalidationRequestFile)
-	if err != nil {
-		return errors.New("specify a cache invalidation request list file. if you would like to use text format, should set \"-t text\" option. reference: https://developer.akamai.com/api/purge/ccu/data.html")
-	}
+func Validation(config *Config) error {
 
 	// Validate edgerc params
 	if len(config.edgeConf.Host) == 0 {
@@ -102,99 +96,82 @@ func Validation(config *Config, invalidationRequestFile string) error {
 	if config.fileType != "json" && config.fileType != "text" {
 		return errors.New("you should specify a cache invalidation request list type is \"json\" or \"text\"")
 	}
-
-	// Validate invalidation request url list file
-	fp, err := os.Open(invalidationRequestFile)
-	chkErr(err)
-	defer fp.Close()
-
-	fileinfo, err := fp.Stat()
-	chkErr(err)
-	if fileinfo.Size() == 0 {
-		return errors.New("cache invalidation request list is empty")
-	}
-	if config.fileType == "json" && maxBodySize < fileinfo.Size() {
-		return errors.New("cache invalidation request list is too large")
-	}
-
-	reader := bufio.NewReaderSize(fp, 4096)
-	line, _, err := reader.ReadLine()
-	if config.fileType == "text" {
-		// URL
-		if string(line[0:4]) != "http" {
-			return errors.New("cache invalidation request list is invalid formatted")
-		}
-	}
-	if config.fileType == "json" && string(line[0:1]) != "{" {
-		return errors.New("cache invalidation request list is invalid formatted")
-	}
 	return nil
 }
 
-// Invalidation request to Akamai CCU v3 (a.k.a Fast Purge) with credential and URL list
-func Invalidation(config *Config, invalidationRequestFile string) error {
+// InvalidateByURLs ...
+func InvalidateByURLs(config *Config, fp io.Reader, wg *sync.WaitGroup) (err error) {
 	var buffer bytes.Buffer
-	var wg sync.WaitGroup
+	bufsize := maxBodySize - jsonOverHead
+	scanner := bufio.NewScanner(fp)
 
-	fp, err := os.Open(invalidationRequestFile)
-	chkErr(err)
-	defer fp.Close()
+	// Chop the text file by request body size upper limit
+	// reference: https://developer.akamai.com/api/purge/ccu/overview.html#limits
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		bufsize = bufsize - len(line) - jsonLineOverHead
+		if 0 < bufsize {
+			buffer.Write(line)
+			buffer.Write([]byte("\n"))
+		} else {
+			body := make([]byte, maxBodySize)
+			_, err := buffer.Read(body)
+			reqBody := createJSON(body)
+			chkErr(err)
+			wg.Add(1)
+			go invalidationRequest(config, reqBody, wg, defaultRetryCount, uuid.New().String())
 
-	// Text file support
-	if config.fileType == "text" {
-		bufsize := maxBodySize - jsonOverHead
-		scanner := bufio.NewScanner(fp)
-
-		// Chop the text file by request body size upper limit
-		// reference: https://developer.akamai.com/api/purge/ccu/overview.html#limits
-		for scanner.Scan() {
-			line := scanner.Bytes()
-			bufsize = bufsize - len(line) - jsonLineOverHead
-			if 0 < bufsize {
-				buffer.Write(line)
-				buffer.Write([]byte("\n"))
-			} else {
-				body := make([]byte, maxBodySize)
-				_, err := buffer.Read(body)
-				reqBody := createJSON(body)
-				chkErr(err)
-
-				// Request cache invalidation in concurrently
-				wg.Add(1)
-				reqID := fmt.Sprint(uuid.New())
-				chkErr(err)
-				go invalidationRequest(config, reqBody, &wg, defaultRetryCount, reqID)
-
-				bufsize = maxBodySize - jsonOverHead - len(line) - jsonLineOverHead
-				buffer.Reset()
-				buffer.Write(line)
-				buffer.Write([]byte("\n"))
-			}
-		}
-		body := make([]byte, maxBodySize)
-		_, err := buffer.Read(body)
-		reqBody := createJSON(body)
-		chkErr(err)
-
-		// Request cache invalidation
-		reqID := fmt.Sprint(uuid.New())
-		chkErr(err)
-		wg.Add(1)
-		invalidationRequest(config, reqBody, &wg, defaultRetryCount, reqID)
-
-		if err := scanner.Err(); err != nil {
-			fmt.Fprintln(os.Stderr, "reading standard input:", err)
+			bufsize = maxBodySize - jsonOverHead - len(line) - jsonLineOverHead
+			buffer.Reset()
+			buffer.Write(line)
+			buffer.Write([]byte("\n"))
 		}
 	}
+	body := make([]byte, maxBodySize)
+	count, err := buffer.Read(body)
+	chkErr(err)
+	reqBody := createJSON(body[:count])
 
-	// JSON file support
-	if config.fileType == "json" {
-		reqBody, err := ioutil.ReadAll(fp)
-		chkErr(err)
-		reqID := fmt.Sprint(uuid.New())
-		chkErr(err)
+	// Request cache invalidation
+	wg.Add(1)
+	go invalidationRequest(config, reqBody, wg, defaultRetryCount, uuid.New().String())
+
+	if err := scanner.Err(); err != nil {
+		fmt.Fprintln(os.Stderr, "reading standard input:", err)
+	}
+	return err
+}
+
+// InvalidateByBodies ...
+func InvalidateByBodies(config *Config, fp io.Reader, wg *sync.WaitGroup) (err error) {
+	dec := json.NewDecoder(fp)
+	for {
+		var reqBody = map[string]interface{}{}
+		if err = dec.Decode(&reqBody); err != nil {
+			if err == io.EOF {
+				err = nil
+			}
+			break
+		}
+		var bodyBuf []byte
+		if bodyBuf, err = json.Marshal(reqBody); err != nil {
+			break
+		}
 		wg.Add(1)
-		invalidationRequest(config, reqBody, &wg, defaultRetryCount, reqID)
+		go invalidationRequest(config, bodyBuf, wg, defaultRetryCount, uuid.New().String())
+	}
+	return err
+}
+
+// Invalidation request to Akamai CCU v3 (a.k.a Fast Purge) with credential and URL list
+func Invalidation(config *Config, in io.Reader) (err error) {
+	var wg sync.WaitGroup
+
+	switch config.fileType {
+	case "text":
+		err = InvalidateByURLs(config, in, &wg)
+	case "json":
+		err = InvalidateByBodies(config, in, &wg)
 	}
 
 	wg.Wait()
@@ -243,7 +220,7 @@ func invalidationRequest(config *Config, data []byte, wg *sync.WaitGroup, count 
 		time.Sleep(time.Duration(duration) * time.Second)
 		count++
 		wg.Add(1)
-		go invalidationRequest(config, next, wg, count, reqID)
+		invalidationRequest(config, next, wg, count, reqID)
 	}
 }
 
@@ -303,8 +280,6 @@ func main() {
 	flag.StringVar(&config.network, "n", defaultNetwork, "specify a target network(akamai production or staging network)")
 	flag.StringVar(&config.fileType, "t", defaultFileType, "specify a invalidation list type(json or text)")
 	flag.Parse()
-	invalidationRequestFile, err := homedir.Expand(flag.Arg(0))
-	chkErr(err)
 
 	// Validate edgerc file
 	edgercPath, err := homedir.Expand(config.edgerc)
@@ -314,12 +289,25 @@ func main() {
 	config.edgerc = edgercPath
 
 	initEdgeConfig(&config)
-	err = Validation(&config, invalidationRequestFile)
+
+	err = Validation(&config)
 	chkErr(err)
 
 	// /ccu/v3/{invalidate|delete}/url
 	config.fastPurgeEndpoint = "/ccu/v3/" + config.method + "/url"
 
-	err = Invalidation(&config, invalidationRequestFile)
+	if flag.NArg() == 0 {
+		err = Invalidation(&config, os.Stdin)
+	} else {
+		for i := 0; i < flag.NArg(); i++ {
+			invalidationRequestFile, err := homedir.Expand(flag.Arg(i))
+			chkErr(err)
+			in, err := os.Open(invalidationRequestFile)
+			chkErr(err)
+			err = Invalidation(&config, in)
+			in.Close()
+			chkErr(err)
+		}
+	}
 	chkErr(err)
 }

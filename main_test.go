@@ -122,49 +122,38 @@ func TestValidation(t *testing.T) {
 	}
 
 	// Valid: correct method, network, fileType and json format
-	err1 := Validation(&config1, validJSONInvalidationRequestFile)
+	err1 := Validation(&config1)
 	if err1 != nil {
 		t.Errorf("validation failed: %s", err1)
 	}
 
 	// Valid: correct method, network, fileType and text format (HTTP)
-	err2 := Validation(&config2, validTextInvalidationRequestFileHTTP)
+	err2 := Validation(&config2)
 	if err2 != nil {
 		t.Errorf("validation failed: %s", err2)
 	}
 
 	// Valid: correct method, network, fileType and text format (HTTPS)
-	err3 := Validation(&config3, validTextInvalidationRequestFileHTTPS)
+	err3 := Validation(&config3)
 	if err3 != nil {
 		t.Errorf("something went wrong, validation should be failed but succeeded")
 	}
 
 	// Invalid: wrong method
-	err4 := Validation(&config4, validJSONInvalidationRequestFile)
+	err4 := Validation(&config4)
 	if err4 == nil {
 		t.Errorf("something went wrong, validation should be failed but succeeded")
 	}
 
 	// Invalid: wrong network
-	err5 := Validation(&config5, "")
+	err5 := Validation(&config5)
 	if err5 == nil {
 		t.Errorf("something went wrong, validation should be failed but succeeded")
 	}
 
 	// Invalid: wrong fileType
-	err6 := Validation(&config6, "")
+	err6 := Validation(&config6)
 	if err6 == nil {
-		t.Errorf("something went wrong, validation should be failed but succeeded")
-	}
-
-	// Invalid: does not specified purge rquest file
-	err7 := Validation(&config1, "")
-	if err7 == nil {
-		t.Errorf("something went wrong, validation should be failed but succeeded")
-	}
-	// Invalid: specified wrong path of purge rquest body file
-	err8 := Validation(&config1, invalidInvalidationRequestFile)
-	if err8 == nil {
 		t.Errorf("something went wrong, validation should be failed but succeeded")
 	}
 
