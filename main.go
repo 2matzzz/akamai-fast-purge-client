@@ -13,6 +13,7 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"os"
 	"sync"
 	"time"
@@ -109,6 +110,8 @@ func InvalidateByURLs(config *Config, fp io.Reader, wg *sync.WaitGroup) (err err
 	// reference: https://developer.akamai.com/api/purge/ccu/overview.html#limits
 	for scanner.Scan() {
 		line := scanner.Bytes()
+		_, err := url.Parse(string(line))
+		chkErr(err)
 		bufsize = bufsize - len(line) - jsonLineOverHead
 		if 0 < bufsize {
 			buffer.Write(line)
