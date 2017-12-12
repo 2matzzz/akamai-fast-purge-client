@@ -10,11 +10,11 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
-	"math"
 	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"sync"
 	"time"
 
@@ -31,8 +31,8 @@ const (
 	defaultFileType          = "text"
 	maxBodySize              = 50000
 	cachePurgeRequestMethohd = "POST"
-	retryThreshold           = float64(50) // suitable
-	defaultRetryCount        = float64(0)
+	retryThreshold           = 10 // uint32 shifting
+	defaultRetryCount        = 0
 )
 
 var (
@@ -47,13 +47,12 @@ type RequestBody struct {
 
 // Config is configuration for Akamai Fast Purge(CCU v3) request
 type Config struct {
-	edgerc            string
-	section           string
-	method            string
-	network           string
-	fileType          string
-	fastPurgeEndpoint string
-	edgeConf          edgegrid.Config
+	edgerc   string
+	section  string
+	method   string
+	network  string
+	fileType string
+	edgeConf edgegrid.Config
 }
 
 func chkExist(path string) error {
@@ -122,7 +121,7 @@ func InvalidateByURLs(config *Config, fp io.Reader, wg *sync.WaitGroup) (err err
 			reqBody := createJSON(body)
 			chkErr(err)
 			wg.Add(1)
-			go invalidationRequest(config, reqBody, wg, defaultRetryCount, uuid.New().String())
+			go invalidationRequest(config, reqBody, wg)
 
 			bufsize = maxBodySize - jsonOverHead - len(line) - jsonLineOverHead
 			buffer.Reset()
@@ -137,7 +136,7 @@ func InvalidateByURLs(config *Config, fp io.Reader, wg *sync.WaitGroup) (err err
 
 	// Request cache invalidation
 	wg.Add(1)
-	go invalidationRequest(config, reqBody, wg, defaultRetryCount, uuid.New().String())
+	go invalidationRequest(config, reqBody, wg)
 
 	if err := scanner.Err(); err != nil {
 		fmt.Fprintln(os.Stderr, "reading standard input:", err)
@@ -161,7 +160,7 @@ func InvalidateByBodies(config *Config, fp io.Reader, wg *sync.WaitGroup) (err e
 			break
 		}
 		wg.Add(1)
-		go invalidationRequest(config, bodyBuf, wg, defaultRetryCount, uuid.New().String())
+		go invalidationRequest(config, bodyBuf, wg)
 	}
 	return err
 }
@@ -181,49 +180,52 @@ func Invalidation(config *Config, in io.Reader) (err error) {
 	return err
 }
 
-func invalidationRequest(config *Config, data []byte, wg *sync.WaitGroup, count float64, reqID string) {
-	defer wg.Done()
-
-	next := make([]byte, len(data))
-	copy(next, data)
-
-	bodyBuf := bytes.NewBuffer(data)
-	client := &http.Client{}
-	req, err := http.NewRequest(
-		cachePurgeRequestMethohd,
-		fmt.Sprintf(
-			"https://%s"+config.fastPurgeEndpoint+"/"+config.network,
-			config.edgeConf.Host,
-		),
-		bodyBuf,
-	)
-	chkErr(err)
-
-	// Add Akamai Authorization header
-	req = edgegrid.AddRequestHeader(config.edgeConf, req)
-
-	// Send invalidation request
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("request failed: %s\n", err)
+func buildRequestURL(config *Config) *url.URL {
+	return &url.URL{
+		Scheme: "https",
+		Host:   config.edgeConf.Host,
+		Path:   path.Join("/ccu/v3", config.method, "url", config.network),
 	}
-	defer resp.Body.Close()
+}
 
-	respBody, _ := ioutil.ReadAll(resp.Body)
-	log.Printf("request_id: %s, response: %s\n", reqID, respBody)
+const (
+	baseDuration = 5
+)
 
-	// Error retry with exponential backoff and full jitter
-	// akamai api limits: https://developer.akamai.com/api/purge/ccu/overview.html#limits
-	// exponential backoff: https://www.awsarchitectureblog.com/2015/03/backoff.html
-	baseDuration := time.Duration(5)
-	additionalDuration := randomTime(0, int(math.Pow(2, count)))
-	duration := baseDuration + additionalDuration
+// Error retry with exponential backoff and full jitter
+// akamai api limits: https://developer.akamai.com/api/purge/ccu/overview.html#limits
+// exponential backoff: https://www.awsarchitectureblog.com/2015/03/backoff.html
+// This is "Full Jitter" algorithm
+func nextDelay(count int) time.Duration {
+	var tmp int64 = 1 << uint32(count) * baseDuration
+	return time.Duration(tmp/2+rand.Int63n(tmp/2)) * time.Second
+}
 
-	if resp.StatusCode >= http.StatusInternalServerError && retryThreshold > count {
-		time.Sleep(time.Duration(duration) * time.Second)
-		count++
-		wg.Add(1)
-		invalidationRequest(config, next, wg, count, reqID)
+func invalidationRequest(config *Config, data []byte, wg *sync.WaitGroup) {
+	defer wg.Done()
+	reqID := uuid.New().String()
+	for i := 0; i < retryThreshold; i++ {
+		bodyBuf := bytes.NewBuffer(data)
+		client := &http.Client{}
+		req, err := http.NewRequest(cachePurgeRequestMethohd, buildRequestURL(config).String(), bodyBuf)
+		chkErr(err)
+
+		// Add Akamai Authorization header
+		req = edgegrid.AddRequestHeader(config.edgeConf, req)
+
+		// Send invalidation request
+		if resp, err := client.Do(req); err == nil {
+			respBody, _ := ioutil.ReadAll(resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode < http.StatusInternalServerError {
+				log.Printf("request_id: %s, response: %s\n", reqID, respBody)
+				break
+			}
+		}
+		// Don't delay at last iteration
+		if retryThreshold-i > 1 {
+			time.Sleep(nextDelay(i))
+		}
 	}
 }
 
@@ -254,11 +256,6 @@ func createRequestBody(in io.Reader) (RequestBody, error) {
 	return rb, nil
 }
 
-func randomTime(min, max int) time.Duration {
-	rand.Seed(time.Now().UnixNano())
-	return time.Duration(rand.Intn(max-min) + min)
-}
-
 func chkErr(err error) {
 	if err != nil {
 		log.Fatalf("%s", err)
@@ -273,6 +270,10 @@ func initEdgeConfig(config *Config) {
 		}
 	}()
 	config.edgeConf = edgegrid.InitConfig(config.edgerc, config.section)
+}
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
 }
 
 func main() {
@@ -295,9 +296,6 @@ func main() {
 
 	err = Validation(&config)
 	chkErr(err)
-
-	// /ccu/v3/{invalidate|delete}/url
-	config.fastPurgeEndpoint = "/ccu/v3/" + config.method + "/url"
 
 	if flag.NArg() == 0 {
 		err = Invalidation(&config, os.Stdin)
