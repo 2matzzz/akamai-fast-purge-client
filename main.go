@@ -17,10 +17,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Sirupsen/logrus"
 	edgegrid "github.com/akamai-open/AkamaiOPEN-edgegrid-golang"
 	uuid "github.com/google/uuid"
 	homedir "github.com/mitchellh/go-homedir"
+	"github.com/sirupsen/logrus"
 )
 
 const (
