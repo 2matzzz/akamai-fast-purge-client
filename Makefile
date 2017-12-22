@@ -3,7 +3,7 @@ GOVERSION=$(shell go version)
 GOOS=$(word 1,$(subst /, ,$(lastword $(GOVERSION))))
 GOARCH=$(word 2,$(subst /, ,$(lastword $(GOVERSION))))
 
-.PHONY: build xbuild ${TARGET}_$(GOOS)_$(GOARCH)$(SUFFIX) clean prepare
+.PHONY: build xbuild test ${TARGET}_$(GOOS)_$(GOARCH)$(SUFFIX) clean prepare
 
 ${TARGET}:
 	go build -o bin/$@
@@ -26,6 +26,9 @@ build-darwin-amd64:
 
 ${TARGET}_$(GOOS)_$(GOARCH)$(SUFFIX):
 	go build -o bin/${TARGET}_$(GOOS)_$(GOARCH)$(SUFFIX)
+
+test:
+	go test
 
 clean:
 	rm -rf ${TARGET} ${TARGET}_*_*
