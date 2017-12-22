@@ -29,7 +29,7 @@ const (
 	defaultMethod            = "invalidate"
 	defaultNetwork           = "staging"
 	defaultFileType          = "text"
-	defaultLogLevel          = "info"
+	defaultLogLevel          = "error"
 	maxBodySize              = 50000
 	cachePurgeRequestMethohd = "POST"
 	retryThreshold           = 10 // uint32 shifting
@@ -224,11 +224,11 @@ func invalidationRequest(config *Config, data []byte, wg *sync.WaitGroup) {
 
 			switch resp.StatusCode {
 			case http.StatusTooManyRequests, http.StatusInsufficientStorage:
-				log.Printf("[Rate limited]request_id: %s\n", reqID)
+				log.Warnf("[Rate limited]request_id: %s\n", reqID)
 			case http.StatusCreated:
-				log.Printf("[Succeed]request_id: %s, response: %s\n", reqID, respBody)
+				log.Infof("[Succeed]request_id: %s, response: %s\n", reqID, respBody)
 			default:
-				log.Debug("[Failed]request_id: %s, request_body_length: %d, response_status: %d, response_body: %s, request_header: %s, request_body: %s, \n", reqID, req.ContentLength, resp.StatusCode, string(respBody), req.Header["Authorization"], string(data))
+				log.Errorf("[Failed]request_id: %s, request_body_length: %d, response_status: %d, response_body: %s, request_header: %s, request_body: %s, \n", reqID, req.ContentLength, resp.StatusCode, string(respBody), req.Header["Authorization"], string(data))
 				break
 			}
 		}
