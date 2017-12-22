@@ -1,34 +1,27 @@
 Akamai Fast Purge Client
 ========================
 
+Reliable CLI for Akamai Fast Purge
+
+[![Build Status](https://travis-ci.org/2matz/akamai-fast-purge-client.svg?branch=add-ci)](https://travis-ci.org/2matz/akamai-fast-purge-client)
+
 Requirement
 -----------
 
 * golang
 * akamai edgegrid credential
 
-How to use
+Usage
 ----------
 
 At first, you can set up your environment to use [Akamai Open API](https://developer.akamai.com/api).
 
 See also: [https://developer.akamai.com/introduction/Setup_Environment.html](https://developer.akamai.com/introduction/Setup_Environment.html)
 
-Next, build the application as below.
-
 ```
 make build
 ```
 
-Finally, you can purge the cache.
-
 ```
 bin/akamai-fast-purge-client_YOUROS_YOURARCH sample/invalidation-request-body
-```
-
-Help
-----
-
-```
-bin/akamai-fast-purge-client_YOUROS_YOURARCH -h
 ```
