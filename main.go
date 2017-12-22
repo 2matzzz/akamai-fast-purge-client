@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -21,6 +20,7 @@ import (
 	edgegrid "github.com/akamai-open/AkamaiOPEN-edgegrid-golang"
 	uuid "github.com/google/uuid"
 	homedir "github.com/mitchellh/go-homedir"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -29,6 +29,7 @@ const (
 	defaultMethod            = "invalidate"
 	defaultNetwork           = "staging"
 	defaultFileType          = "text"
+	defaultLogLevel          = "error"
 	maxBodySize              = 50000
 	cachePurgeRequestMethohd = "POST"
 	retryThreshold           = 10 // uint32 shifting
@@ -38,6 +39,8 @@ const (
 var (
 	jsonOverHead     = len([]byte(`{"objects":[]}`))
 	jsonLineOverHead = len([]byte(`"",`))
+	log              = logrus.New()
+	logLevel         logrus.Level
 )
 
 // RequestBody ...
@@ -52,6 +55,7 @@ type Config struct {
 	method   string
 	network  string
 	fileType string
+	logLevel string
 	edgeConf edgegrid.Config
 }
 
@@ -204,6 +208,8 @@ func nextDelay(count int) time.Duration {
 func invalidationRequest(config *Config, data []byte, wg *sync.WaitGroup) {
 	defer wg.Done()
 	reqID := uuid.New().String()
+
+L:
 	for i := 0; i < retryThreshold; i++ {
 		bodyBuf := bytes.NewBuffer(data)
 		client := &http.Client{}
@@ -217,9 +223,16 @@ func invalidationRequest(config *Config, data []byte, wg *sync.WaitGroup) {
 		if resp, err := client.Do(req); err == nil {
 			respBody, _ := ioutil.ReadAll(resp.Body)
 			resp.Body.Close()
-			if resp.StatusCode < http.StatusInternalServerError {
-				log.Printf("request_id: %s, response: %s\n", reqID, respBody)
-				break
+
+			switch resp.StatusCode {
+			case http.StatusTooManyRequests, http.StatusInsufficientStorage:
+				log.Printf("[Rate limited]request_id: %s\n", reqID)
+			case http.StatusCreated:
+				log.Printf("[Succeed]request_id: %s, response: %s\n", reqID, respBody)
+				break L
+			default:
+				log.Errorf("[Failed]request_id: %s, request_body_length: %d, response_status: %d, response_body: %s, request_header: %s, request_body: %s, \n", reqID, req.ContentLength, resp.StatusCode, string(respBody), req.Header["Authorization"], string(data))
+				break L
 			}
 		}
 		// Don't delay at last iteration
@@ -272,6 +285,12 @@ func initEdgeConfig(config *Config) {
 	config.edgeConf = edgegrid.InitConfig(config.edgerc, config.section)
 }
 
+func setLogLevel(config *Config) (err error) {
+	logLevel, err = logrus.ParseLevel(config.logLevel)
+	logrus.SetLevel(logLevel)
+	return err
+}
+
 func init() {
 	rand.Seed(time.Now().UnixNano())
 }
@@ -283,7 +302,11 @@ func main() {
 	flag.StringVar(&config.method, "m", defaultMethod, "specify a invalidation method(invalidate or delete)")
 	flag.StringVar(&config.network, "n", defaultNetwork, "specify a target network(akamai production or staging network)")
 	flag.StringVar(&config.fileType, "t", defaultFileType, "specify a invalidation list type(json or text)")
+	flag.StringVar(&config.logLevel, "l", defaultLogLevel, "specify log level(info or debug)")
 	flag.Parse()
+
+	err := setLogLevel(&config)
+	chkErr(err)
 
 	// Validate edgerc file
 	edgercPath, err := homedir.Expand(config.edgerc)
